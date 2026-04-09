@@ -3,16 +3,31 @@ export const DTU_BASE = 'https://www.dtu.ac.in';
 export const MONTHS   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 // ===== PROXY FALLBACK CHAIN =====
-// Each entry is a function that builds the proxied URL for the target.
-// const PROXIES = [
-//   (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-//   (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-//   (url) => `https://cors-anywhere.herokuapp.com/${url}`,
-// ];
+// Order matters — first healthy proxy wins.
+// Each entry: { makeUrl, extractHtml }
+//   makeUrl(url)     → the URL to fetch
+//   extractHtml(res) → async fn that returns the raw HTML string from the response
 
 const PROXIES = [
-  (url) => `https://dtu-proxy.bettermentorr.workers.dev`,  // your worker (ignores url param, always fetches DTU)
-  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,  // fallback
+  {
+    // corsproxy.io — free, reliable, returns raw HTML directly
+    makeUrl:     (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    extractHtml: (res) => res.text(),
+  },
+  {
+    // allorigins /get — returns JSON { contents, status }; more stable than /raw
+    makeUrl:     (url) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+    extractHtml: async (res) => {
+      const json = await res.json();
+      if (!json.contents) throw Object.assign(new Error('allorigins returned empty contents'), { code: 'PROXY_FAIL' });
+      return json.contents;
+    },
+  },
+  {
+    // Cloudflare worker — your own worker, last resort
+    makeUrl:     (_url) => `https://dtu-proxy.bettermentorr.workers.dev`,
+    extractHtml: (res) => res.text(),
+  },
 ];
 
 // ===== CATEGORIES =====
@@ -146,7 +161,7 @@ export async function fetchNotices(force = false) {
   let lastErrCode = 'PROXY_FAIL';
   let lastErrMsg  = 'All proxy servers failed. DTU may be down or unreachable.';
 
-  for (const makeUrl of PROXIES) {
+  for (const { makeUrl, extractHtml } of PROXIES) {
     const proxyUrl = makeUrl(DTU_BASE);
     try {
       const res = await fetch(proxyUrl, { cache: 'no-store' });
@@ -159,7 +174,15 @@ export async function fetchNotices(force = false) {
         continue;
       }
 
-      const html = await res.text();
+      let html;
+      try {
+        html = await extractHtml(res);            // proxy-specific extraction
+      } catch (extractErr) {
+        console.warn(`[DTU] Proxy ${proxyUrl} extract error:`, extractErr.message);
+        lastErrCode = 'PROXY_FAIL';
+        lastErrMsg  = extractErr.message;
+        continue;
+      }
 
       try {
         const notices = parseHTML(html);          // throws PARSE_FAIL if invalid
