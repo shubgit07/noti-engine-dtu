@@ -10,23 +10,23 @@ export const MONTHS   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','
 
 const PROXIES = [
   {
-    // corsproxy.io — free, reliable, returns raw HTML directly
+    // Cloudflare worker — your own, most reliable for dtu.ac.in
+    makeUrl:     (_url) => `https://dtu-proxy.bettermentorr.workers.dev`,
+    extractHtml: (res) => res.text(),
+  },
+  {
+    // corsproxy.io — free public proxy, fallback
     makeUrl:     (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
     extractHtml: (res) => res.text(),
   },
   {
-    // allorigins /get — returns JSON { contents, status }; more stable than /raw
+    // allorigins /get — returns JSON { contents, status }; last resort
     makeUrl:     (url) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
     extractHtml: async (res) => {
       const json = await res.json();
       if (!json.contents) throw Object.assign(new Error('allorigins returned empty contents'), { code: 'PROXY_FAIL' });
       return json.contents;
     },
-  },
-  {
-    // Cloudflare worker — your own worker, last resort
-    makeUrl:     (_url) => `https://dtu-proxy.bettermentorr.workers.dev`,
-    extractHtml: (res) => res.text(),
   },
 ];
 
