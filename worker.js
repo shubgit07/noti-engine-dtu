@@ -1,15 +1,30 @@
-/**
- * DTU Notices Proxy — Cloudflare Worker
- *
- * What changed vs original:
- *  - Added ctx parameter → enables ctx.waitUntil() for async cache writes
- *  - Added caches.default server-side cache (5 min TTL)
- *    First request in any 5-min window: fetches DTU, stores in CF edge cache
- *    All subsequent requests: served from CF edge cache (0 DTU network hit)
- *  - X-Cache: HIT / MISS header so you can verify cache behaviour
- */
+// ── Rate Limiter (per IP, in-memory per isolate) ──────────────────
+const RATE_STORE  = new Map();  // ip → { count, windowStart }
+const RL_MAX      = 20;         // max 20 requests per IP per minute
+const RL_WINDOW   = 60_000;     // 1-minute sliding window
 
-const CACHE_TTL = 300;          // 5 minutes — matches frontend TTL
+function isRateLimited(ip) {
+  const now   = Date.now();
+  const entry = RATE_STORE.get(ip);
+
+  if (!entry || now - entry.windowStart > RL_WINDOW) {
+    RATE_STORE.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+  if (entry.count >= RL_MAX) return true;
+  entry.count++;
+  return false;
+}
+
+// Prevent unbounded memory growth — prune stale IPs
+function pruneRateStore() {
+  const cutoff = Date.now() - RL_WINDOW * 2;
+  for (const [ip, e] of RATE_STORE)
+    if (e.windowStart < cutoff) RATE_STORE.delete(ip);
+}
+
+// ──────────────────────────────────────────────────────────────────
+const CACHE_TTL = 300;
 const CACHE_KEY = new Request("https://dtu-notices-html-cache/v3");
 
 const ALLOWED_ORIGINS = [
@@ -17,40 +32,34 @@ const ALLOWED_ORIGINS = [
   "https://noti-engine-dtu.vercel.app",
 ];
 
-function corsOrigin(request) {
-  const origin = request.headers.get("Origin") || "";
-  return ALLOWED_ORIGINS.find(o => origin.startsWith(o)) || ALLOWED_ORIGINS[1];
-}
-
-function isAllowed(request) {
-  const origin  = request.headers.get("Origin")  || "";
-  const referer = request.headers.get("Referer") || "";
-  return (
-    ALLOWED_ORIGINS.some(o => origin.startsWith(o)) ||
-    ALLOWED_ORIGINS.some(o => referer.startsWith(o))
-  );
-}
-
 export default {
   async fetch(request, env, ctx) {
 
-    // ── Method guard ────────────────────────────────────────────────
+    // ── Method guard ───────────────────────────────────────────────
     if (request.method !== "GET" && request.method !== "OPTIONS") {
       return new Response("Method not allowed", { status: 405 });
     }
 
-    // ── Origin guard ────────────────────────────────────────────────
-    if (!isAllowed(request)) {
+    // ── Origin guard ───────────────────────────────────────────────
+    const origin  = request.headers.get("Origin")  || "";
+    const referer = request.headers.get("Referer") || "";
+
+    const isLegit =
+      ALLOWED_ORIGINS.some(o => origin.startsWith(o)) ||
+      ALLOWED_ORIGINS.some(o => referer.startsWith(o));
+
+    if (!isLegit) {
       return new Response("Forbidden", { status: 403 });
     }
 
-    const origin = corsOrigin(request);
+    const corsOrigin =
+      ALLOWED_ORIGINS.find(o => origin.startsWith(o)) || ALLOWED_ORIGINS[1];
 
-    // ── CORS preflight ──────────────────────────────────────────────
+    // ── CORS preflight ─────────────────────────────────────────────
     if (request.method === "OPTIONS") {
       return new Response(null, {
         headers: {
-          "Access-Control-Allow-Origin":  origin,
+          "Access-Control-Allow-Origin":  corsOrigin,
           "Access-Control-Allow-Methods": "GET",
           "Access-Control-Allow-Headers": "Content-Type",
           "Access-Control-Max-Age":       "86400",
@@ -58,25 +67,39 @@ export default {
       });
     }
 
-    // ── Server-side edge cache check ────────────────────────────────
-    const cache  = caches.default;
-    const cached = await cache.match(CACHE_KEY);
+    // ── Rate limit (per real client IP) ───────────────────────────
+    // CF-Connecting-IP is injected by Cloudflare — cannot be spoofed
+    const clientIP = request.headers.get("CF-Connecting-IP") || "unknown";
+    ctx.waitUntil(Promise.resolve().then(pruneRateStore));
 
-    if (cached) {
-      // Serve from edge cache — zero DTU network hit
-      const html = await cached.text();
-      return new Response(html, {
+    if (isRateLimited(clientIP)) {
+      return new Response("Too Many Requests", {
+        status: 429,
         headers: {
-          "Content-Type":             "text/html; charset=utf-8",
-          "Access-Control-Allow-Origin": origin,
-          "Cache-Control":            `s-maxage=${CACHE_TTL}`,
-          "X-Cache":                  "HIT",
-          "X-Content-Type-Options":   "nosniff",
+          "Retry-After":                 "60",
+          "Access-Control-Allow-Origin": corsOrigin,
         },
       });
     }
 
-    // ── Cache miss: fetch from DTU ──────────────────────────────────
+    // ── Edge cache check (serves most requests, zero DTU hit) ──────
+    const cache  = caches.default;
+    const cached = await cache.match(CACHE_KEY);
+
+    if (cached) {
+      const html = await cached.text();
+      return new Response(html, {
+        headers: {
+          "Content-Type":                "text/html; charset=utf-8",
+          "Access-Control-Allow-Origin": corsOrigin,
+          "Cache-Control":               `s-maxage=${CACHE_TTL}`,
+          "X-Cache":                     "HIT",
+          "X-Content-Type-Options":      "nosniff",
+        },
+      });
+    }
+
+    // ── Cache miss: fetch from DTU ─────────────────────────────────
     try {
       const res = await fetch("https://www.dtu.ac.in", {
         headers: {
@@ -92,7 +115,7 @@ export default {
 
       const html = await res.text();
 
-      // Store in edge cache asynchronously (doesn't block the response)
+      // Store in edge cache async — does not delay the response
       ctx.waitUntil(
         cache.put(
           CACHE_KEY,
@@ -107,11 +130,11 @@ export default {
 
       return new Response(html, {
         headers: {
-          "Content-Type":             "text/html; charset=utf-8",
-          "Access-Control-Allow-Origin": origin,
-          "Cache-Control":            `s-maxage=${CACHE_TTL}`,
-          "X-Cache":                  "MISS",
-          "X-Content-Type-Options":   "nosniff",
+          "Content-Type":                "text/html; charset=utf-8",
+          "Access-Control-Allow-Origin": corsOrigin,
+          "Cache-Control":               `s-maxage=${CACHE_TTL}`,
+          "X-Cache":                     "MISS",
+          "X-Content-Type-Options":      "nosniff",
         },
       });
 
