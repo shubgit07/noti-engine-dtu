@@ -29,7 +29,7 @@ const CACHE_KEY = new Request("https://dtu-notices-html-cache/v3");
 
 const ALLOWED_ORIGINS = [
   "http://localhost:5173",
-  "https://noti-engine-dtu.vercel.app",
+  "https://noticedce.vercel.app",
 ];
 
 export default {
