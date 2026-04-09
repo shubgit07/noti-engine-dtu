@@ -52,6 +52,20 @@ export function categorise(title) {
   return 'gen';
 }
 
+// ===== EXAM SUB-CATEGORIES =====
+const EXAM_SUB = {
+  seating:   ['seating', 'seat plan', 'seating plan', 'seat arrangement', 'room allot'],
+  datesheet: ['datesheet', 'date sheet', 'date-sheet', 'schedule of exam', 'examination schedule'],
+};
+
+export function examSubCat(title) {
+  const t = title.toLowerCase();
+  for (const [key, keywords] of Object.entries(EXAM_SUB)) {
+    if (keywords.some(kw => t.includes(kw))) return key;
+  }
+  return 'other';
+}
+
 // ===== DATE HELPERS =====
 export function parseDate(raw) {
   if (!raw) return null;

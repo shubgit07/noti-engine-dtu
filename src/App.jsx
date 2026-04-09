@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Navbar     from './Navbar';
 import FilterBar  from './FilterBar';
 import NoticeCard from './NoticeCard';
+import ExamBoard  from './ExamBoard';
 import { fetchNotices, CATEGORIES } from './utils';
 
 const PAGE_SIZE = 10;
@@ -102,11 +103,12 @@ export default function App() {
 
   useEffect(() => { load(false); }, [load]);
 
-  const counts    = useCounts(notices);
-  const filtered  = useFiltered(notices, filter, debouncedQ, sort);
-  const visible   = useMemo(() => filtered.slice(0, page * PAGE_SIZE), [filtered, page]);
-  const hasMore   = visible.length < filtered.length;
-  const remaining = filtered.length - visible.length;
+  const counts      = useCounts(notices);
+  const filtered    = useFiltered(notices, filter, debouncedQ, sort);
+  const visible     = useMemo(() => filtered.slice(0, page * PAGE_SIZE), [filtered, page]);
+  const hasMore     = visible.length < filtered.length;
+  const remaining   = filtered.length - visible.length;
+  const examNotices = useMemo(() => notices.filter(n => n.cat === 'exam'), [notices]);
 
   const catLabel = filter === 'all'
     ? 'All categories'
@@ -170,6 +172,11 @@ export default function App() {
           <div className="results-bar">
             Showing <strong>{visible.length}</strong> of <strong>{filtered.length}</strong> · {catLabel}
           </div>
+        )}
+
+        {/* ── Exam Board ── */}
+        {status === 'idle' && examNotices.length > 0 && (
+          <ExamBoard notices={examNotices} />
         )}
 
         {/* ── Cards Grid ── */}
