@@ -1,16 +1,16 @@
 import { useState, useMemo } from 'react';
-import { examSubCat, formatDate, isRecent, isSafeUrl } from './utils';
+import { scholSubCat, formatDate, isRecent, isSafeUrl } from './utils';
 
 const TABS = [
-  { key: 'seating',   label: 'Seating Plan' },
-  { key: 'datesheet', label: 'Datesheet' },
-  { key: 'makeup',    label: 'Makeup/Detention' },
-  { key: 'other',     label: 'Miscellaneous' },
+  { key: 'concession',  label: 'Fee Concession' },
+  { key: 'scholarship', label: 'Scholarships' },
+  { key: 'medal',       label: 'Medals/Awards' },
+  { key: 'other',       label: 'Miscellaneous' },
 ];
 
-function ExamItem({ notice }) {
+function ScholarshipItem({ notice }) {
   const safeHref = isSafeUrl(notice.href) ? notice.href : '#';
-  const recent   = isRecent(notice.dateObj);
+  const recent = isRecent(notice.dateObj);
 
   return (
     <a
@@ -18,7 +18,7 @@ function ExamItem({ notice }) {
       href={safeHref}
       target="_blank"
       rel="noopener noreferrer"
-      id={`exam-${notice.id}`}
+      id={`schol-${notice.id}`}
     >
       <div className="exam-item-body">
         <p className="exam-item-title">{notice.title}</p>
@@ -32,14 +32,13 @@ function ExamItem({ notice }) {
   );
 }
 
-export default function ExamBoard({ notices }) {
-  const [activeTab, setActiveTab] = useState('seating');
+export default function ScholarshipBoard({ notices }) {
+  const [activeTab, setActiveTab] = useState('concession');
 
-  // Split exam notices into sub-categories
   const grouped = useMemo(() => {
-    const groups = { seating: [], datesheet: [], makeup: [], other: [] };
-    notices.forEach(n => {
-      const sub = examSubCat(n.title);
+    const groups = { concession: [], scholarship: [], medal: [], other: [] };
+    notices.forEach((n) => {
+      const sub = scholSubCat(n.title);
       groups[sub].push(n);
     });
     return groups;
@@ -47,31 +46,29 @@ export default function ExamBoard({ notices }) {
 
   const activeNotices = grouped[activeTab] || [];
 
-  // Don't render at all if there are no exam notices
   if (notices.length === 0) return null;
 
   return (
-    <section className="exam-board" aria-label="Examination Board">
+    <section className="exam-board scholarship-board" aria-label="Scholarships Board">
       <div className="exam-board-header">
         <div className="exam-board-title-row">
-          <h2 className="exam-board-title">Exam Board</h2>
+          <h2 className="exam-board-title">Scholarships Board</h2>
           <span className="exam-board-count">{notices.length} notices</span>
         </div>
         <p className="exam-board-desc">
-          Quick access to seating plans, datesheets, makeup and detention updates
+          Quick access to fee concession, scholarship, and medal award notices
         </p>
       </div>
 
-      {/* Tabs */}
       <div className="exam-tabs" role="tablist">
-        {TABS.map(tab => (
+        {TABS.map((tab) => (
           <button
             key={tab.key}
             role="tab"
             aria-selected={activeTab === tab.key}
             className={`exam-tab ${activeTab === tab.key ? 'active' : ''}`}
             onClick={() => setActiveTab(tab.key)}
-            id={`exam-tab-${tab.key}`}
+            id={`schol-tab-${tab.key}`}
           >
             <span className="exam-tab-label">{tab.label}</span>
             <span className="exam-tab-count">{grouped[tab.key].length}</span>
@@ -79,15 +76,14 @@ export default function ExamBoard({ notices }) {
         ))}
       </div>
 
-      {/* Notice List */}
-      <div className="exam-list" role="tabpanel" aria-label={`${activeTab} notices`}>
+      <div className="exam-list" role="tabpanel" aria-label={`${activeTab} scholarship notices`}>
         <div className="tab-panel-content" key={activeTab}>
           {activeNotices.length === 0 ? (
             <div className="exam-empty">
-              <p>No {TABS.find(t => t.key === activeTab)?.label.toLowerCase()} notices right now</p>
+              <p>No {TABS.find((t) => t.key === activeTab)?.label.toLowerCase()} notices right now</p>
             </div>
           ) : (
-            activeNotices.map(n => <ExamItem key={n.id} notice={n} />)
+            activeNotices.map((n) => <ScholarshipItem key={n.id} notice={n} />)
           )}
         </div>
       </div>

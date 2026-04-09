@@ -19,18 +19,18 @@ export default function NoticeCard({ notice }) {
     >
       <div className="notice-card-top">
         <span className={`notice-cat-badge badge-${cat}`}>
-          {catInfo.emoji} {catInfo.label}
+          {catInfo.label}
         </span>
         <span className="notice-date">
           {recent && <span className="notice-dot" title="Posted this week" />}
-          📅 {formatDate(dateObj)}
+          {formatDate(dateObj)}
         </span>
       </div>
 
       <p className="notice-title">{title}</p>
 
       <div className="notice-footer">
-        <span className="notice-view-link">→ View Notice</span>
+        <span className="notice-view-link">View Notice</span>
       </div>
     </a>
   );

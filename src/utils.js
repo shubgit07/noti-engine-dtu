@@ -56,11 +56,27 @@ export function categorise(title) {
 const EXAM_SUB = {
   seating:   ['seating', 'seat plan', 'seating plan', 'seat arrangement', 'room allot'],
   datesheet: ['datesheet', 'date sheet', 'date-sheet', 'schedule of exam', 'examination schedule'],
+  makeup:    ['makeup exam', 'make up exam', 'makeup', 'make up', 'detention list', 'detention', 'detain', 'detained'],
 };
 
 export function examSubCat(title) {
   const t = title.toLowerCase();
   for (const [key, keywords] of Object.entries(EXAM_SUB)) {
+    if (keywords.some(kw => t.includes(kw))) return key;
+  }
+  return 'other';
+}
+
+// ===== SCHOLARSHIP SUB-CATEGORIES =====
+const SCHOL_SUB = {
+  concession: ['fee concession', 'concession', 'fee waiver', 'waiver', 'freeship', 'free ship', 'tuition fee', 'financial aid', 'ews'],
+  scholarship: ['scholarship', 'stipend', 'fellowship', 'bursary', 'yasasvi', 'grant'],
+  medal: ['award', 'awards', 'medal', 'medals', 'merit scholarship', 'merit'],
+};
+
+export function scholSubCat(title) {
+  const t = title.toLowerCase();
+  for (const [key, keywords] of Object.entries(SCHOL_SUB)) {
     if (keywords.some(kw => t.includes(kw))) return key;
   }
   return 'other';
@@ -87,7 +103,7 @@ export function isRecent(dateObj) {
 }
 
 // ===== IN-MEMORY CACHE (5-min TTL) =====
-let _cache     = null;
+let _htmlCache = null;
 let _cacheTime = 0;
 const CACHE_TTL = 5 * 60 * 1000;
 
@@ -120,7 +136,7 @@ export function isSafeUrl(url) {
 }
 
 // ===== PARSE HELPER =====
-function parseHTML(html) {
+function parseHTMLChunk(html, offset = 0, limit = 50) {
   const doc  = new DOMParser().parseFromString(html, 'text/html');
   const tab4 = doc.querySelector('#tab4');
 
@@ -139,14 +155,21 @@ function parseHTML(html) {
     throw err;
   }
 
+  const total = items.length;
+  const safeOffset = Math.max(0, offset);
+  const safeLimit = Math.max(1, limit);
+  const start = Math.min(safeOffset, total);
+  const end = Math.min(start + safeLimit, total);
+
   const notices = [];
-  items.forEach((li, idx) => {
+  for (let idx = start; idx < end; idx++) {
+    const li = items[idx];
     const anchor = li.querySelector('a.colr') || li.querySelector('a');
-    if (!anchor) return;
+    if (!anchor) continue;
 
     // Sanitise: strip any injected HTML/JS from the text node
     const title = sanitiseText(anchor.textContent);
-    if (!title) return;
+    if (!title) continue;
 
     // Resolve relative URLs then validate they point to *.dtu.ac.in
     let rawHref = anchor.getAttribute('href') || '';
@@ -160,16 +183,31 @@ function parseHTML(html) {
     const dateObj = parseDate(rawDate);
 
     notices.push({ id: idx, title, href, rawDate, dateObj, cat: categorise(title) });
-  });
+  }
 
-  return notices;
+  return {
+    notices,
+    total,
+    nextOffset: end,
+    hasMore: end < total,
+  };
 }
 
 // ===== FETCH WITH PROXY FALLBACK CHAIN =====
-export async function fetchNotices(force = false) {
+export async function fetchNotices(options = {}) {
+  const {
+    force = false,
+    offset = 0,
+    limit = 50,
+  } = typeof options === 'boolean' ? { force: options } : options;
+
+  const safeOffset = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0;
+  const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 50;
+
   // Serve from cache if still fresh
-  if (!force && _cache && Date.now() - _cacheTime < CACHE_TTL) {
-    return { notices: _cache, fromCache: true };
+  if (!force && _htmlCache && Date.now() - _cacheTime < CACHE_TTL) {
+    const parsed = parseHTMLChunk(_htmlCache, safeOffset, safeLimit);
+    return { ...parsed, fromCache: true };
   }
 
   let lastErrCode = 'PROXY_FAIL';
@@ -199,10 +237,10 @@ export async function fetchNotices(force = false) {
       }
 
       try {
-        const notices = parseHTML(html);          // throws PARSE_FAIL if invalid
-        _cache     = notices;
+        const parsed = parseHTMLChunk(html, safeOffset, safeLimit); // throws PARSE_FAIL if invalid
+        _htmlCache = html;
         _cacheTime = Date.now();
-        return { notices, fromCache: false };
+        return { ...parsed, fromCache: false };
       } catch (parseErr) {
         if (parseErr.code === 'PARSE_FAIL') {
           // DTU's structure changed — all proxies will give the same HTML, no point retrying

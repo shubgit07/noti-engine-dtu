@@ -8,14 +8,14 @@ export default function Navbar({ onRefresh, loading }) {
           <span className="navbar-sub">Delhi Technological University</span>
         </div>
       </div>
+
       <button
-        className={`navbar-refresh-btn${loading ? ' spinning' : ''}`}
+        className={`navbar-refresh-btn min-h-11 ${loading ? 'spinning' : ''}`}
         onClick={onRefresh}
         disabled={loading}
         aria-label="Refresh notices"
         id="refresh-btn"
       >
-        <span className="refresh-icon" aria-hidden="true">↻</span>
         {loading ? 'Refreshing…' : 'Refresh'}
       </button>
     </nav>
